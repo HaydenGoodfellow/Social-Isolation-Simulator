@@ -84,9 +84,9 @@ void clearCharacters();
 
 // Graphing
 void draw_line(int x1, int y1, int x2, int y2, short int color, volatile int pixelBufferStart);
-void drawGraphBoundary(int baseX , int baseY , int res_x , int res_y, volatile int pixelBufferStart);
-void drawGraph(int graphHistory[SIM_LENGTH], int size, int baseX, int baseY, int res_x, 
-			   int res_y, char string[], short int color, volatile int pixelBufferStart);
+void drawGraphBoundary(int baseX , int baseY , int graphResX , int graphResY, volatile int pixelBufferStart);
+void drawGraph(int graphHistory[SIM_LENGTH], int size, int baseX, int baseY, int graphResX, 
+			   int graphResY, char string[], short int color, volatile int pixelBufferStart);
 void resetGraphHistory(int graphHistory[SIM_LENGTH]);
 
 // Stats
@@ -131,7 +131,7 @@ int main(void) {
 	initializePeople(people, percentIsolating);
 	// Infects a random number of people to start the simulation
 	initializeInfected(people, percentIsolating);
-    // array to remember all Collisions
+	// Array to remember all Collisions
 	int collisionMemory[RESOLUTION_X][RESOLUTION_Y];
 	// Arrays and variables used for stats
 	int num_infected = 0;
@@ -253,7 +253,6 @@ void updatePositions(person people[TOTAL_PEOPLE], int collisionMemory[RESOLUTION
 		// Ensures it doesn't move people that are isolating
 		if (!people[person].immobile) {
 			bool flag = updateDirectionOnCollision(people, person, collisionMemory);
-	
 			int nextX = people[person].x + people[person].slopeX;
 			int nextY = people[person].y + people[person].slopeY;
 			if (nextX >= RESOLUTION_X - SQUARE_WIDTH) // Reached right end, go left
@@ -293,9 +292,8 @@ void rollRecoveryOrDecease(person people[TOTAL_PEOPLE], int personNum) {
 				people[personNum].status = DECEASED;
 				people[personNum].immobile = true;
 			}
-			else {
+			else 
 				people[personNum].status = RECOVERED;
-			}
 		}	
 		else 
 			people[personNum].hoursInfected++;
@@ -308,18 +306,17 @@ void rollRecoveryOrDecease(person people[TOTAL_PEOPLE], int personNum) {
 // Initializes collision memory to no people
 void initCollisionMemory(int collisionMemory[RESOLUTION_X][RESOLUTION_Y]) {
     for (int i = 0 ; i < RESOLUTION_X; i++) {
-        for (int j = 0; j < RESOLUTION_Y; j++) {
+        for (int j = 0; j < RESOLUTION_Y; j++) 
             collisionMemory[i][j] = NO_PERSON;
-        }
     }
 }
 
 // Detects all collisions and points of conflict.
 void updateCollisionMemory(person people[TOTAL_PEOPLE], int collisionMemory[RESOLUTION_X][RESOLUTION_Y]) {
 	initCollisionMemory(collisionMemory);
-	for (size_t people_count = 0; people_count < TOTAL_PEOPLE; people_count++) {
-		int x = people[people_count].x;
-		int y = people[people_count].y;
+	for (size_t peopleCount = 0; peopleCount < TOTAL_PEOPLE; peopleCount++) {
+		int x = people[peopleCount].x;
+		int y = people[peopleCount].y;
 		// Person has moved to new tile so it should be empty
 		if (collisionMemory[x][y] == NO_PERSON) {
 			for (int m = 0 ; m < SQUARE_WIDTH; m++) {
@@ -328,7 +325,7 @@ void updateCollisionMemory(person people[TOTAL_PEOPLE], int collisionMemory[RESO
 						continue;
 					// No collision
 					if (collisionMemory[x+m][y+n] == NO_PERSON)
-						collisionMemory[x+m][y+n] = people_count; // Update with person number
+						collisionMemory[x+m][y+n] = peopleCount; // Update with person number
 					// Collision
 					else {
 						// Collided with infected person
@@ -348,13 +345,12 @@ void updateCollisionMemory(person people[TOTAL_PEOPLE], int collisionMemory[RESO
 bool updateDirectionOnCollision(person people[TOTAL_PEOPLE], int person, int collisionMemory[RESOLUTION_X][RESOLUTION_Y]) {
 	int x = people[person].x;
 	int y = people[person].y;
-
+	// No collision is possible so return
 	if (collisionMemory[x][y] == NO_PERSON)
 		return false;
-	
 	int towardsRight = 0, towardsLeft = 0, towardsTop = 0,  towardsBottom = 0;
 	int collisionCount = 0;
-	
+	// Check for collisions
 	for(int m = 0 ; m < SQUARE_WIDTH; m++) {
 		for (int n = 0; n < SQUARE_WIDTH; n++) {
 			// Was there a collision
@@ -401,10 +397,8 @@ void rollInfectionOnCollision(person people[TOTAL_PEOPLE], int collisionMemory[R
 	for (size_t person = 0; person < TOTAL_PEOPLE; person++) {
 		if (people[person].status != UNINFECTED)
 			continue; // if previously infected now sick, immune, or dead
-
 		int x = people[person].x;
 		int y = people[person].y;
-		
 		for (size_t i = 0; i < SQUARE_WIDTH; i++) {
 			for (size_t j = 0; j < SQUARE_WIDTH; j++) {
 				if (collisionMemory[x + i][y + j] == DETECT_COLLISION_INFECT)
@@ -430,7 +424,7 @@ double startScreenControl() {
 			displayNumOnHex12(numEntered);
 			lastNum = numEntered;
 		}
-		// PS/2 Keyboard Adapter
+		// PS/2 Keyboard Adapter which allows users to enter a number < 99 and backspace it as well
 		if (dataAvail) {
 			char keyCode = PS2Data & 0xFF;
 			if (skipNext) {
@@ -513,6 +507,7 @@ double startScreenControl() {
 			}
 		}
 	}
+	// Need number to be a percent
 	if (numEntered != 0)
 		return ((double) numEntered / 100.0);
 	else {
@@ -532,10 +527,8 @@ void waitForVSync(volatile int* pixelControl) {
 	// Writes 1 into buffer which swaps front/back buffers
 	*pixelControl = 1;
 	// Waits for VSync
-	while ((*status & 0x01) != 0) {
-        status = status; //keep reading status
-	}
-    return;
+	while ((*status & 0x01) != 0) 
+        status = status; // Keep reading status
 }
 
 // Checks if a point is within screen boundaries
@@ -662,64 +655,59 @@ void draw_line(int x1, int y1, int x2, int y2, short int color, volatile int pix
 }
 
 // Draws boundary of the graph and clears the area inside of it to black
-void drawGraphBoundary(int baseX , int baseY , int res_x , int res_y, volatile int pixelBufferStart) {
+void drawGraphBoundary(int baseX , int baseY , int graphResX , int graphResY, volatile int pixelBufferStart) {
 	// Clear graph area to black
-	for (int i = baseX ; i < baseX + res_x ; i++)
-		for (int j = baseY ; j < baseY + res_y ; j++)
+	for (int i = baseX ; i < baseX + graphResX ; i++)
+		for (int j = baseY ; j < baseY + graphResY ; j++)
 			drawPixel(i , j , BLACK, pixelBufferStart);
 	
-	//draw_line(base_x , base_y , base_x + res_x , base_y , WHITE, pixelBufferStart);
-	//draw_line(base_x , base_y , base_x , base_y + res_y , WHITE, pixelBufferStart);
-	//draw_line(base_x + res_x , base_y  , base_x + res_x, base_y + res_y, WHITE, pixelBufferStart);
-	//draw_line(base_x , base_y + res_y, base_x + res_x, base_y + res_y , WHITE, pixelBufferStart);
-	
 	// Draw boundary lines
-	draw_line(baseX, baseY, baseX + res_x, baseY, WHITE, pixelBufferStart); // Bottom
-	draw_line(baseX, baseY, baseX, baseY + res_y, WHITE, pixelBufferStart); // Left
-	draw_line(baseX + res_x, baseY, baseX + res_x, baseY + res_y, WHITE, pixelBufferStart); // Right
-	draw_line(baseX, baseY + res_y, baseX + res_x, baseY + res_y , WHITE, pixelBufferStart); // Top
+	draw_line(baseX, baseY, baseX + graphResX, baseY, WHITE, pixelBufferStart); // Bottom
+	draw_line(baseX, baseY, baseX, baseY + graphResY, WHITE, pixelBufferStart); // Left
+	draw_line(baseX + graphResX, baseY, baseX + graphResX, baseY + graphResY, WHITE, pixelBufferStart); // Right
+	draw_line(baseX, baseY + graphResY, baseX + graphResX, baseY + graphResY , WHITE, pixelBufferStart); // Top
 }
 
 // Draws the information graph and plots the lines on it
 void drawGraph(int graphHistory[SIM_LENGTH], int size, int baseX, int baseY, 
-			  int res_x, int res_y, char string[], short int color, volatile int pixelBufferStart) {
-	int prevX, prevY, newX, newY, currX = 0, s = 1;
+			  int graphResX, int graphResY, char string[], short int color, volatile int pixelBufferStart) {
+	int prevX, prevY, newX, newY, currX = 0, drawingX = 1;
 	bool first = true;
 	// Loops over the graph x axis
-	for (size_t i = 0; i < size; i+= s) {
+	for (size_t i = 0; i < size; i += s) {
 		// If the time hasn't progressed enough don't draw the graph yet
 		if (graphHistory[i] == NO_PLOT)
 			break;
 		// Else progress to next pixel to draw
 		else
 			currX++;
-
-		if (res_x < size) {
-			s = (size - i) / (res_x - currX);
-			if(s == 0)
-				s = 1;
+		
+		if (graphResX < size) {
+			drawingX = (size - i) / (graphResX - currX);
+			if(drawingX == 0)
+				drawingX = 1;
 		}
 		// Update (x, y) coordinates
 		prevX = newX;
 		prevY = newY;
-		newY = baseY + res_y - graphHistory[i];
+		newY = baseY + graphResY - graphHistory[i];
 		newX = baseX + currX;
 		// Ensures we don't draw on the graph boundary
 		if (!first) {
 			// Plot line
-			if(isValidPoint(prevX , prevY) && isValidPoint(newX , newY))
-				draw_line(prevX , prevY , newX , newY , color, pixelBufferStart);
+			if(isValidPoint(prevX, prevY) && isValidPoint(newX, newY))
+				draw_line(prevX, prevY, newX, newY, color, pixelBufferStart);
 		}
 		first = false;
 	}
-	int size_string = 0;
+	int stringSize = 0;
 	char* temp = string;
 	while (*temp) {
-		size_string++;
+		stringSize++;
 		temp++;
    	}
 	// Draws text under the graph
-	drawText((baseX + res_x / 2 ) / 4 - size_string / 2 , (baseY + res_y + 8) /4 , string, 100);
+	drawText((baseX + graphResX / 2 ) / 4 - stringSize / 2 , (baseY + graphResY + 8) /4 , string, 100);
 }
 
 // Clears the graph history array
