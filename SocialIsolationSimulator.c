@@ -5,10 +5,10 @@
 //-------------------------- Settings --------------------------//	
 #define SIM_LENGTH   1000 // Hours
 #define TOTAL_PEOPLE 100
-#define NUM_INFECTED 7
+#define NUM_INFECTED 14
 #define AVG_DAYS_INF 24
 #define STD_DEV_DAYS 4
-#define DEATH_RATE   3  // Percent
+#define DEATH_RATE   4  // Percent
 #define INFECT_PROB  50 // Percent
 
 #define SQUARE_WIDTH 4
@@ -21,6 +21,7 @@
 #define BLUE 	0x001F		// 0000 0000 0001 1111
 #define GREEN 	0x07E0		// 0000 0111 1110 0000
 
+// Flags for collision detection and the graph
 #define NO_PLOT -4
 #define NO_PERSON -1
 #define DETECT_COLLISION -3
@@ -64,7 +65,7 @@ void rollInfectionOnCollision(person people[TOTAL_PEOPLE], int collisionMemory[R
 //-------------------------- Control Functions --------------------------//
 double startScreenControl();
 void waitForVSync(volatile int* pixelControl);
-bool isValidPoint(int x , int y);
+bool isValidPoint(int x, int y);
 
 //-------------------------- Drawing Functions --------------------------//
 // General
@@ -78,13 +79,13 @@ void drawPeople(person people[TOTAL_PEOPLE], volatile int pixelBufferStart);
 void clearPeople(volatile int pixelBufferStart, person people[TOTAL_PEOPLE]);
 
 // Text
-void write_char(int x, int y, char c);
-void drawText(int x, int y, char string[], int max_size);
+void writeChar(int x, int y, char c);
+void drawText(int x, int y, char string[], int maxSize);
 void clearCharacters();
 
 // Graphing
-void draw_line(int x1, int y1, int x2, int y2, short int color, volatile int pixelBufferStart);
-void drawGraphBoundary(int baseX , int baseY , int graphResX , int graphResY, volatile int pixelBufferStart);
+void drawLine(int x1, int y1, int x2, int y2, short int color, volatile int pixelBufferStart);
+void drawGraphBoundary(int baseX, int baseY, int graphResX, int graphResY, volatile int pixelBufferStart);
 void drawGraph(int graphHistory[SIM_LENGTH], int size, int baseX, int baseY, int graphResX, 
 			   int graphResY, char string[], short int color, volatile int pixelBufferStart);
 void resetGraphHistory(int graphHistory[SIM_LENGTH]);
@@ -118,7 +119,7 @@ int main(void) {
 	clearScreen(*pixelControl);
 	// Sets it so we draw on the back buffer
 	pixelBufferStart = *backBuffer;
-	// clears all text
+	// clears all text from buffer (ensures no text remains from previous sim)
 	clearCharacters();
 	// Draws start screen and waits for user to press enter to begin
 	drawStartScreen(pixelBufferStart);
@@ -134,12 +135,10 @@ int main(void) {
 	// Array to remember all Collisions
 	int collisionMemory[RESOLUTION_X][RESOLUTION_Y];
 	// Arrays and variables used for stats
-	int num_infected = 0;
+	int numInfected = 0;
 	long timeStep = 0;
-	int infected_history[SIM_LENGTH];
-	int deceasedHistory[SIM_LENGTH];
-	int recoveredHistory[SIM_LENGTH];
-	resetGraphHistory(infected_history);
+	int infectedHistory[SIM_LENGTH], deceasedHistory[SIM_LENGTH], recoveredHistory[SIM_LENGTH];
+	resetGraphHistory(infectedHistory);
 	resetGraphHistory(deceasedHistory);
 	resetGraphHistory(recoveredHistory);
 	
@@ -165,22 +164,22 @@ int main(void) {
 		rollInfectionOnCollision(people, collisionMemory, INFECT_PROB);
 
 		// Count and display infected
-		num_infected = countStatus(people, INFECTED);
-		infected_history[timeStep] = num_infected;
+		numInfected = countStatus(people, INFECTED);
+		infectedHistory[timeStep] = numInfected;
 		deceasedHistory[timeStep] = countStatus(people, DECEASED);
 		recoveredHistory[timeStep] = countStatus(people, RECOVERED);
 		
 		// Update number on HEX display
-		displayNumOnHex23(num_infected);
+		displayNumOnHex23(numInfected);
 		
 		// Draws all people as squares to the front buffer
 		drawPeople(people, pixelBufferStart);
 		
 		// Update graphs
-		drawGraphBoundary(320 - 90 , 10 , RESOLUTION_X / 4, RESOLUTION_Y /4 , pixelBufferStart);
-		drawGraph(infected_history, SIM_LENGTH,  320 - 90 , 10 , RESOLUTION_X / 4, RESOLUTION_Y /4, "Infections", RED,pixelBufferStart);
-		drawGraph(deceasedHistory, SIM_LENGTH,  320 - 90 , 10 , RESOLUTION_X / 4, RESOLUTION_Y /4, "Deceased", WHITE,pixelBufferStart);
-		drawGraph(recoveredHistory, SIM_LENGTH,  320 - 90 , 10 , RESOLUTION_X / 4, RESOLUTION_Y /4, "Infection Progress", BLUE, pixelBufferStart);
+		drawGraphBoundary(RESOLUTION_X - 90, 10, RESOLUTION_X / 4, RESOLUTION_Y /4, pixelBufferStart);
+		drawGraph(infectedHistory, SIM_LENGTH,  RESOLUTION_X - 90, 10, RESOLUTION_X / 4, RESOLUTION_Y /4, "Infections", RED,pixelBufferStart);
+		drawGraph(deceasedHistory, SIM_LENGTH,  RESOLUTION_X - 90, 10, RESOLUTION_X / 4, RESOLUTION_Y /4, "Deceased", WHITE,pixelBufferStart);
+		drawGraph(recoveredHistory, SIM_LENGTH,  RESOLUTION_X - 90, 10, RESOLUTION_X / 4, RESOLUTION_Y /4, "Infection Progress", BLUE, pixelBufferStart);
 
 		// Swaps front/back buffers and waits for VSync signal
 		waitForVSync(pixelControl);
@@ -324,16 +323,17 @@ void updateCollisionMemory(person people[TOTAL_PEOPLE], int collisionMemory[RESO
 					if (x + m >= RESOLUTION_X || y + n >= RESOLUTION_Y)
 						continue;
 					// No collision
-					if (collisionMemory[x+m][y+n] == NO_PERSON)
-						collisionMemory[x+m][y+n] = peopleCount; // Update with person number
+					if (collisionMemory[x + m][y + n] == NO_PERSON)
+						collisionMemory[x + m][y + n] = peopleCount; // Update with person number
 					// Collision
 					else {
 						// Collided with infected person
-						if (people[collisionMemory[x+m][y+n]].status == INFECTED)
-							collisionMemory[x+m][y+n] = DETECT_COLLISION_INFECT;
+						if (people[collisionMemory[x + m][y + n]].status == INFECTED 
+						    || people[peopleCount].status == INFECTED)
+							collisionMemory[x + m][y + n] = DETECT_COLLISION_INFECT;
 						// Collided with non-infected person
 						else
-							collisionMemory[x+m][y+n] = DETECT_COLLISION;
+							collisionMemory[x + m][y + n] = DETECT_COLLISION;
 					}
 				}
 			}
@@ -351,10 +351,10 @@ bool updateDirectionOnCollision(person people[TOTAL_PEOPLE], int person, int col
 	int towardsRight = 0, towardsLeft = 0, towardsTop = 0,  towardsBottom = 0;
 	int collisionCount = 0;
 	// Check for collisions
-	for(int m = 0 ; m < SQUARE_WIDTH; m++) {
+	for (int m = 0 ; m < SQUARE_WIDTH; m++) {
 		for (int n = 0; n < SQUARE_WIDTH; n++) {
 			// Was there a collision
-			if(collisionMemory[x+m][y+n] == DETECT_COLLISION || collisionMemory[x+m][y+n] == DETECT_COLLISION_INFECT) {
+			if(collisionMemory[x + m][y + n] == DETECT_COLLISION || collisionMemory[x + m][y + n] == DETECT_COLLISION_INFECT) {
 				towardsRight += (m == (SQUARE_WIDTH - 1));
 				towardsLeft += (m == 0);
 				towardsTop += (n == 0);
@@ -402,13 +402,12 @@ void rollInfectionOnCollision(person people[TOTAL_PEOPLE], int collisionMemory[R
 		for (size_t i = 0; i < SQUARE_WIDTH; i++) {
 			for (size_t j = 0; j < SQUARE_WIDTH; j++) {
 				if (collisionMemory[x + i][y + j] == DETECT_COLLISION_INFECT)
-					if((rand() % 100) < INFECT_PROB) // Infect person
-						people[person].status = INFECTED; 
+					if ((rand() % 100) < INFECT_PROB) 
+						people[person].status = INFECTED; // Infect person
 			}
 		}
 	}
 }
-
 
 //-------------------------- Control Functions --------------------------//
 // Waits for the enter key to be pressed and determines percent of people isolating
@@ -532,7 +531,7 @@ void waitForVSync(volatile int* pixelControl) {
 }
 
 // Checks if a point is within screen boundaries
-bool isValidPoint(int x , int y) {
+bool isValidPoint(int x, int y) {
 	return (x < RESOLUTION_X) && (x > 0) && (y > 0) && (y < RESOLUTION_Y) ;
 }
 
@@ -582,10 +581,9 @@ void drawPeople(person people[TOTAL_PEOPLE], volatile int pixelBufferStart) {
 	}
 }
 
-// Clears entire screen to black
+// Clears entire screen minus the graph to black
 void clearPeople(volatile int pixelBufferStart, person people[TOTAL_PEOPLE]) {
     for (int person = 0; person < TOTAL_PEOPLE; ++person) {
-		// Both buffers
 		drawSquare(people[person].x, people[person].y, BLACK, pixelBufferStart);
 		drawSquare(people[person].prevX, people[person].prevY, BLACK, pixelBufferStart);
 	}
@@ -593,17 +591,17 @@ void clearPeople(volatile int pixelBufferStart, person people[TOTAL_PEOPLE]) {
 
 //-------------------------------- Text ---------------------------------//
 // Writes a character to screen
-void write_char(int x, int y, char c) {
+void writeChar(int x, int y, char c) {
   // VGA character buffer
   volatile char* character_buffer = (char *)(0xc9000000 + (y << 7) + x);
   *character_buffer = c;
 }
 
 // Given text cordinates, draw text on screen
-void drawText (int x, int y, char string[], int max_size) {
+void drawText (int x, int y, char string[], int maxSize) {
 	int i = 0;
-	while (i < max_size && *string) {
-		write_char(x, y, *string);
+	while (i < maxSize && *string) {
+		writeChar(x, y, *string);
 		string++;
 		x++;
 		i++;
@@ -614,13 +612,13 @@ void drawText (int x, int y, char string[], int max_size) {
 void clearCharacters() {
 	for (int x = 0; x < RESOLUTION_X / 4; ++x) {
 		for (int y = 0; y < RESOLUTION_Y / 4; ++y) 
-			write_char(x, y, ' ');
+			writeChar(x, y, ' ');
 	}
 }
 
 //------------------------------- Graphing ------------------------------//
 // Draws a line on the screen given 2 points using Bresenham’s algorithm
-void draw_line(int x1, int y1, int x2, int y2, short int color, volatile int pixelBufferStart) {
+void drawLine(int x1, int y1, int x2, int y2, short int color, volatile int pixelBufferStart) {
     bool isSteep = abs(y2-y1) > abs(x2-x1);
     if (isSteep) {
         swap (&x1, &y1);
@@ -655,17 +653,17 @@ void draw_line(int x1, int y1, int x2, int y2, short int color, volatile int pix
 }
 
 // Draws boundary of the graph and clears the area inside of it to black
-void drawGraphBoundary(int baseX , int baseY , int graphResX , int graphResY, volatile int pixelBufferStart) {
+void drawGraphBoundary(int baseX, int baseY, int graphResX, int graphResY, volatile int pixelBufferStart) {
 	// Clear graph area to black
 	for (int i = baseX ; i < baseX + graphResX ; i++)
 		for (int j = baseY ; j < baseY + graphResY ; j++)
-			drawPixel(i , j , BLACK, pixelBufferStart);
+			drawPixel(i, j, BLACK, pixelBufferStart);
 	
 	// Draw boundary lines
-	draw_line(baseX, baseY, baseX + graphResX, baseY, WHITE, pixelBufferStart); // Bottom
-	draw_line(baseX, baseY, baseX, baseY + graphResY, WHITE, pixelBufferStart); // Left
-	draw_line(baseX + graphResX, baseY, baseX + graphResX, baseY + graphResY, WHITE, pixelBufferStart); // Right
-	draw_line(baseX, baseY + graphResY, baseX + graphResX, baseY + graphResY , WHITE, pixelBufferStart); // Top
+	drawLine(baseX, baseY, baseX + graphResX, baseY, WHITE, pixelBufferStart); // Bottom
+	drawLine(baseX, baseY, baseX, baseY + graphResY, WHITE, pixelBufferStart); // Left
+	drawLine(baseX + graphResX, baseY, baseX + graphResX, baseY + graphResY, WHITE, pixelBufferStart); // Right
+	drawLine(baseX, baseY + graphResY, baseX + graphResX, baseY + graphResY, WHITE, pixelBufferStart); // Top
 }
 
 // Draws the information graph and plots the lines on it
@@ -674,7 +672,7 @@ void drawGraph(int graphHistory[SIM_LENGTH], int size, int baseX, int baseY,
 	int prevX, prevY, newX, newY, currX = 0, drawingX = 1;
 	bool first = true;
 	// Loops over the graph x axis
-	for (size_t i = 0; i < size; i += s) {
+	for (size_t i = 0; i < size; i += drawingX) {
 		// If the time hasn't progressed enough don't draw the graph yet
 		if (graphHistory[i] == NO_PLOT)
 			break;
@@ -696,7 +694,7 @@ void drawGraph(int graphHistory[SIM_LENGTH], int size, int baseX, int baseY,
 		if (!first) {
 			// Plot line
 			if(isValidPoint(prevX, prevY) && isValidPoint(newX, newY))
-				draw_line(prevX, prevY, newX, newY, color, pixelBufferStart);
+				drawLine(prevX, prevY, newX, newY, color, pixelBufferStart);
 		}
 		first = false;
 	}
@@ -707,7 +705,7 @@ void drawGraph(int graphHistory[SIM_LENGTH], int size, int baseX, int baseY,
 		temp++;
    	}
 	// Draws text under the graph
-	drawText((baseX + graphResX / 2 ) / 4 - stringSize / 2 , (baseY + graphResY + 8) /4 , string, 100);
+	drawText((baseX + graphResX / 2 ) / 4 - stringSize / 2, (baseY + graphResY + 8) /4, string, 100);
 }
 
 // Clears the graph history array
@@ -776,16 +774,16 @@ void displayEndingStats(person people[TOTAL_PEOPLE]) {
 	int baseX = (RESOLUTION_X / 2) /4  - 20;
 	int baseY = (RESOLUTION_Y / 2) /4 ;
 	
-	sprintf(message, "Simulation ran for %d days." , SIM_LENGTH / 24);
-	drawText(baseX , baseY , message, 50);
-	sprintf(message, "%d People are still infected." , infectedCount);
-	drawText(baseX , baseY + 1 , message, 50);
+	sprintf(message, "Simulation ran for %d days.", SIM_LENGTH / 24);
+	drawText(baseX, baseY, message, 50);
+	sprintf(message, "%d People are still infected.", infectedCount);
+	drawText(baseX, baseY + 1, message, 50);
 	sprintf(message, "%d People recovered.", recoveredCount);
-	drawText(baseX , baseY  + 2, message, 50);
+	drawText(baseX, baseY  + 2, message, 50);
 	sprintf(message, "%d People died.", deceasedCount);
-	drawText(baseX , baseY  + 3, message, 50);
-	sprintf(message, "Average recovery time was %d Days." , avgTimeInfected / 24);
-	drawText(baseX , baseY  + 5, message, 50);
+	drawText(baseX, baseY  + 3, message, 50);
+	sprintf(message, "Average recovery time was %d Days.", avgTimeInfected / 24);
+	drawText(baseX, baseY  + 5, message, 50);
 	free(message);
 }
 
