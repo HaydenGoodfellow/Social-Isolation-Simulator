@@ -134,7 +134,7 @@ int main(void) {
     // array to remember all Collisions
 	int collisionMemory[RESOLUTION_X][RESOLUTION_Y];
 	// Arrays and variables used for stats
-    int num_infected = 0;
+	int num_infected = 0;
 	long timeStep = 0;
 	int infected_history[SIM_LENGTH];
 	int deceasedHistory[SIM_LENGTH];
@@ -173,19 +173,19 @@ int main(void) {
 		// Update number on HEX display
 		displayNumOnHex23(num_infected);
 		
-        // Draws all people as squares to the front buffer
+		// Draws all people as squares to the front buffer
 		drawPeople(people, pixelBufferStart);
 		
 		// Update graphs
 		drawGraphBoundary(320 - 90 , 10 , RESOLUTION_X / 4, RESOLUTION_Y /4 , pixelBufferStart);
 		drawGraph(infected_history, SIM_LENGTH,  320 - 90 , 10 , RESOLUTION_X / 4, RESOLUTION_Y /4, "Infections", RED,pixelBufferStart);
-        drawGraph(deceasedHistory, SIM_LENGTH,  320 - 90 , 10 , RESOLUTION_X / 4, RESOLUTION_Y /4, "Deceased", WHITE,pixelBufferStart);
-        drawGraph(recoveredHistory, SIM_LENGTH,  320 - 90 , 10 , RESOLUTION_X / 4, RESOLUTION_Y /4, "Infection Progress", BLUE, pixelBufferStart);
+		drawGraph(deceasedHistory, SIM_LENGTH,  320 - 90 , 10 , RESOLUTION_X / 4, RESOLUTION_Y /4, "Deceased", WHITE,pixelBufferStart);
+		drawGraph(recoveredHistory, SIM_LENGTH,  320 - 90 , 10 , RESOLUTION_X / 4, RESOLUTION_Y /4, "Infection Progress", BLUE, pixelBufferStart);
 
 		// Swaps front/back buffers and waits for VSync signal
 		waitForVSync(pixelControl);
 		
-        // Swaps to new back buffer
+		// Swaps to new back buffer
 		pixelBufferStart = *backBuffer;
 		timeStep++;
 	}
@@ -238,12 +238,10 @@ void initializeInfected(person people[TOTAL_PEOPLE], double percentIsolating) {
 	for (int num = 0; num < trueNumInfected; ++num) {
 		int person = (rand() % (TOTAL_PEOPLE - numIsolating)) + numIsolating;
 		// Only infect uninfected people not isolating
-		if (people[person].status == UNINFECTED) {
+		if (people[person].status == UNINFECTED) 
 			people[person].status = INFECTED;
-		}
-		else {
+		else 
 			--num;
-		}
 	}
 }
 
@@ -252,7 +250,7 @@ void updatePositions(person people[TOTAL_PEOPLE], int collisionMemory[RESOLUTION
 	for (int person = 0; person < TOTAL_PEOPLE; ++person) {
 		if (people[person].status == INFECTED) 
 			rollRecoveryOrDecease(people, person);
-		
+		// Ensures it doesn't move people that are isolating
 		if (!people[person].immobile) {
 			bool flag = updateDirectionOnCollision(people, person, collisionMemory);
 	
@@ -267,7 +265,7 @@ void updatePositions(person people[TOTAL_PEOPLE], int collisionMemory[RESOLUTION
 			else if (nextY <= 0) // Reached bottom go up
 				people[person].slopeY = 1;
 			
-			if (!flag){
+			if (!flag) {
 				people[person].prevX = people[person].x;
 				people[person].prevY = people[person].y;
 			}
@@ -308,8 +306,8 @@ void rollRecoveryOrDecease(person people[TOTAL_PEOPLE], int personNum) {
 
 //-------------------------- Collision Functions---------------------//
 // Initializes collision memory to no people
-void initCollisionMemory(int collisionMemory[RESOLUTION_X][RESOLUTION_Y]){
-    for (int i = 0 ; i < RESOLUTION_X; i++){
+void initCollisionMemory(int collisionMemory[RESOLUTION_X][RESOLUTION_Y]) {
+    for (int i = 0 ; i < RESOLUTION_X; i++) {
         for (int j = 0; j < RESOLUTION_Y; j++) {
             collisionMemory[i][j] = NO_PERSON;
         }
@@ -317,15 +315,15 @@ void initCollisionMemory(int collisionMemory[RESOLUTION_X][RESOLUTION_Y]){
 }
 
 // Detects all collisions and points of conflict.
-void updateCollisionMemory(person people[TOTAL_PEOPLE], int collisionMemory[RESOLUTION_X][RESOLUTION_Y]){
+void updateCollisionMemory(person people[TOTAL_PEOPLE], int collisionMemory[RESOLUTION_X][RESOLUTION_Y]) {
 	initCollisionMemory(collisionMemory);
 	for (size_t people_count = 0; people_count < TOTAL_PEOPLE; people_count++) {
 		int x = people[people_count].x;
 		int y = people[people_count].y;
 		// Person has moved to new tile so it should be empty
-		if (collisionMemory[x][y] == NO_PERSON){
-			for (int m = 0 ; m < SQUARE_WIDTH; m++){
-				for (int n = 0; n < SQUARE_WIDTH; n++){
+		if (collisionMemory[x][y] == NO_PERSON) {
+			for (int m = 0 ; m < SQUARE_WIDTH; m++) {
+				for (int n = 0; n < SQUARE_WIDTH; n++) {
 					if (x + m >= RESOLUTION_X || y + n >= RESOLUTION_Y)
 						continue;
 					// No collision
@@ -347,7 +345,7 @@ void updateCollisionMemory(person people[TOTAL_PEOPLE], int collisionMemory[RESO
 }
 
 // Controls direction of people after a collision
-bool updateDirectionOnCollision(person people[TOTAL_PEOPLE], int person, int collisionMemory[RESOLUTION_X][RESOLUTION_Y]){
+bool updateDirectionOnCollision(person people[TOTAL_PEOPLE], int person, int collisionMemory[RESOLUTION_X][RESOLUTION_Y]) {
 	int x = people[person].x;
 	int y = people[person].y;
 
@@ -357,10 +355,10 @@ bool updateDirectionOnCollision(person people[TOTAL_PEOPLE], int person, int col
 	int towardsRight = 0, towardsLeft = 0, towardsTop = 0,  towardsBottom = 0;
 	int collisionCount = 0;
 	
-	for(int m = 0 ; m < SQUARE_WIDTH; m++){
-		for (int n = 0; n < SQUARE_WIDTH; n++){
+	for(int m = 0 ; m < SQUARE_WIDTH; m++) {
+		for (int n = 0; n < SQUARE_WIDTH; n++) {
 			// Was there a collision
-			if(collisionMemory[x+m][y+n] == DETECT_COLLISION || collisionMemory[x+m][y+n] == DETECT_COLLISION_INFECT){
+			if(collisionMemory[x+m][y+n] == DETECT_COLLISION || collisionMemory[x+m][y+n] == DETECT_COLLISION_INFECT) {
 				towardsRight += (m == (SQUARE_WIDTH - 1));
 				towardsLeft += (m == 0);
 				towardsTop += (n == 0);
@@ -388,7 +386,7 @@ bool updateDirectionOnCollision(person people[TOTAL_PEOPLE], int person, int col
 		people[person].slopeY = 0;
 	bool noChangePrev = false;
 	
-	if (collisionCount > 0){
+	if (collisionCount > 0) {
 		noChangePrev = true;
 		people[person].prevX = people[person].x;
 		people[person].prevY = people[person].y;
@@ -399,7 +397,7 @@ bool updateDirectionOnCollision(person people[TOTAL_PEOPLE], int person, int col
 }
 
 // Runs through collisions and potentially infects new people based on chance
-void rollInfectionOnCollision(person people[TOTAL_PEOPLE], int collisionMemory[RESOLUTION_X][RESOLUTION_Y], int infectionProb){
+void rollInfectionOnCollision(person people[TOTAL_PEOPLE], int collisionMemory[RESOLUTION_X][RESOLUTION_Y], int infectionProb) {
 	for (size_t person = 0; person < TOTAL_PEOPLE; person++) {
 		if (people[person].status != UNINFECTED)
 			continue; // if previously infected now sick, immune, or dead
@@ -541,7 +539,7 @@ void waitForVSync(volatile int* pixelControl) {
 }
 
 // Checks if a point is within screen boundaries
-bool isValidPoint(int x , int y){
+bool isValidPoint(int x , int y) {
 	return (x < RESOLUTION_X) && (x > 0) && (y > 0) && (y < RESOLUTION_Y) ;
 }
 
@@ -631,12 +629,12 @@ void clearCharacters() {
 // Draws a line on the screen given 2 points using Bresenham’s algorithm
 void draw_line(int x1, int y1, int x2, int y2, short int color, volatile int pixelBufferStart) {
     bool isSteep = abs(y2-y1) > abs(x2-x1);
-    if (isSteep){
+    if (isSteep) {
         swap (&x1, &y1);
         swap (&x2, &y2);
     }
 	// Ensures x1 is the leftmost point
-    if (x2 < x1){
+    if (x2 < x1) {
         swap (&x1, &x2);
         swap (&y1, &y2);
     }
@@ -650,7 +648,7 @@ void draw_line(int x1, int y1, int x2, int y2, short int color, volatile int pix
     else 
 		y_step = -1;
 	// Bresenhams algorithm loop
-    for (int x = x1; x <= x2; x++){
+    for (int x = x1; x <= x2; x++) {
         if (isSteep)
             drawPixel(y, x, color, pixelBufferStart);
         else 
@@ -696,7 +694,7 @@ void drawGraph(int graphHistory[SIM_LENGTH], int size, int baseX, int baseY,
 		else
 			currX++;
 
-		if (res_x < size){
+		if (res_x < size) {
 			s = (size - i) / (res_x - currX);
 			if(s == 0)
 				s = 1;
@@ -707,7 +705,7 @@ void drawGraph(int graphHistory[SIM_LENGTH], int size, int baseX, int baseY,
 		newY = baseY + res_y - graphHistory[i];
 		newX = baseX + currX;
 		// Ensures we don't draw on the graph boundary
-		if (!first){
+		if (!first) {
 			// Plot line
 			if(isValidPoint(prevX , prevY) && isValidPoint(newX , newY))
 				draw_line(prevX , prevY , newX , newY , color, pixelBufferStart);
@@ -725,14 +723,14 @@ void drawGraph(int graphHistory[SIM_LENGTH], int size, int baseX, int baseY,
 }
 
 // Clears the graph history array
-void resetGraphHistory(int graphHistory[SIM_LENGTH]){
+void resetGraphHistory(int graphHistory[SIM_LENGTH]) {
 	for (size_t i = 0; i < SIM_LENGTH; i++) 
 		graphHistory[i] = NO_PLOT;
 }
 
 //-------------------------------- Stats --------------------------------//
 // Collects count of number of people with each status
-int countStatus(person people[TOTAL_PEOPLE], enum personStatus status){
+int countStatus(person people[TOTAL_PEOPLE], enum personStatus status) {
 	int count = 0;
 	for (size_t person = 0; person < TOTAL_PEOPLE; person++) {
 		if(people[person].status == status)
@@ -767,16 +765,16 @@ void displayNumOnHex23(unsigned percentInfected) {
 
 //-------------------------- Start/end screens --------------------------//
 // Writes text displaying stats at end of simulation
-void displayEndingStats(person people[TOTAL_PEOPLE]){
+void displayEndingStats(person people[TOTAL_PEOPLE]) {
 	int recoveredCount = 0, infectedCount = 0, deceasedCount = 0;
 	int totalRecoveredTime = 0, totalDeceasedTime = 0;
 	// Go through all people and count statuses
-	for (size_t person = 0; person < TOTAL_PEOPLE; person++){
-		if(people[person].status == RECOVERED){
+	for (size_t person = 0; person < TOTAL_PEOPLE; person++) {
+		if(people[person].status == RECOVERED) {
 			recoveredCount++;
 			totalRecoveredTime += people[person].hoursInfected;
 		}
-		if(people[person].status == DECEASED){
+		if(people[person].status == DECEASED) {
 			deceasedCount++;
 			totalDeceasedTime += people[person].hoursInfected;
 		}
@@ -1067,7 +1065,7 @@ void drawStartScreen(volatile int pixelBufferStart) {
 
 //---------------------------- Miscellaneous ----------------------------//
 // Swaps two variables
-void swap (int* a, int* b){
+void swap (int* a, int* b) {
     int temp;
     temp = *a;
     *a = *b;
