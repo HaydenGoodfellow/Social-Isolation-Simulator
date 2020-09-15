@@ -52,10 +52,14 @@ typedef struct {
 //-------------------------- Simulation Functions --------------------------//
 void initializePeople(person people[TOTAL_PEOPLE], double percentIsolating);
 void initializeInfected(person people[TOTAL_PEOPLE], double percentIsolating);
-short int getColour(enum personStatus status);
 void updatePositions(person people[TOTAL_PEOPLE], int collisionMemory[RESOLUTION_X][RESOLUTION_Y];);
-void rollRecoveryOrDeath(person people[TOTAL_PEOPLE], int personNum);
-void rollDecease(person people[TOTAL_PEOPLE] , int death_percentage, int recovery_percentage);
+void rollRecoveryOrDecease(person people[TOTAL_PEOPLE], int personNum);
+
+//-------------------------- Collision Functions---------------------//
+void initCollisionMemory(int collisionMemory[RESOLUTION_X][RESOLUTION_Y]);
+void updateCollisionMemory(person people[TOTAL_PEOPLE], int collisionMemory[RESOLUTION_X][RESOLUTION_Y]);
+bool updateDirectionOnCollision(person people[TOTAL_PEOPLE], int person, int collisionMemory[RESOLUTION_X][RESOLUTION_Y]);
+void rollInfectionOnCollision(person people[TOTAL_PEOPLE], int collisionMemory[RESOLUTION_X][RESOLUTION_Y], int infectionProb);
 
 //-------------------------- Control Functions --------------------------//
 double startScreenControl();
@@ -64,12 +68,12 @@ bool isValidPoint(int x , int y);
 
 //-------------------------- Drawing Functions --------------------------//
 // General
-void drawSquare(int x, int y, short int colour, volatile int pixelBufferStart);	
 void drawPixel(int x,int y, short int colour, volatile int pixelBufferStart);
 void clearScreen(volatile int pixelBufferStart);
-void drawStartScreen(volatile int pixelBufferStart);
 
 // People
+short int getColour(enum personStatus status);
+void drawSquare(int x, int y, short int colour, volatile int pixelBufferStart);	
 void drawPeople(person people[TOTAL_PEOPLE], volatile int pixelBufferStart);
 void clearPeople(volatile int pixelBufferStart, person people[TOTAL_PEOPLE]);
 
@@ -79,26 +83,23 @@ void drawText(int x, int y, char string[], int max_size);
 void clearCharacters();
 
 // Graphing
-void swap (int* a, int* b);
 void draw_line(int x1, int y1, int x2, int y2, short int color, volatile int pixelBufferStart);
-void drawGraphBoundary(int base_x , int base_y , int res_x , int res_y, volatile int pixelBufferStart);
-void drawGraph(int history[SIM_LENGTH], int size, int base_x, int base_y, int res_x, 
+void drawGraphBoundary(int baseX , int baseY , int res_x , int res_y, volatile int pixelBufferStart);
+void drawGraph(int graphHistory[SIM_LENGTH], int size, int baseX, int baseY, int res_x, 
 			   int res_y, char string[], short int color, volatile int pixelBufferStart);
-void resetHistory(int history[SIM_LENGTH]);
+void resetGraphHistory(int graphHistory[SIM_LENGTH]);
 
 // Stats
-void displayStats(person people[TOTAL_PEOPLE]);
-void displayNumOnHex(unsigned percentIsolating);
-void displayNumOnHex23(unsigned percentInfected);
 int countStatus(person people[TOTAL_PEOPLE], enum personStatus status);
+void displayNumOnHex12(unsigned percentIsolating);
+void displayNumOnHex23(unsigned percentInfected);
 
-//-------------------------- Collision Functions---------------------//
-void initCollisionMemory(int collisionMemory[RESOLUTION_X][RESOLUTION_Y]);
-void updateCollisionMemory(person people[TOTAL_PEOPLE], int collisionMemory[RESOLUTION_X][RESOLUTION_Y]);
-bool checkSinglePersonCollision(person people[TOTAL_PEOPLE], int person, int collisionMemory[RESOLUTION_X][RESOLUTION_Y]);
+// Start/Ending screens
+void displayEndingStats(person people[TOTAL_PEOPLE]);
+void drawStartScreen(volatile int pixelBufferStart);
 
-// Spread Infections
-void checkInfectionStatus(person people[TOTAL_PEOPLE], int collisionMemory[RESOLUTION_X][RESOLUTION_Y], int infectionProb);
+// Miscellaneous Helper Functions
+void swap(int* a, int* b);
 
 //-------------------------- Main Function --------------------------//
 int main(void) {
@@ -138,9 +139,9 @@ int main(void) {
 	int infected_history[SIM_LENGTH];
 	int deceasedHistory[SIM_LENGTH];
 	int recoveredHistory[SIM_LENGTH];
-	resetHistory(infected_history);
-	resetHistory(deceasedHistory);
-	resetHistory(recoveredHistory);
+	resetGraphHistory(infected_history);
+	resetGraphHistory(deceasedHistory);
+	resetGraphHistory(recoveredHistory);
 	
 	// Clear screen and begin simulation
 	clearScreen(pixelBufferStart);
@@ -161,7 +162,7 @@ int main(void) {
 		updateCollisionMemory(people, collisionMemory);
 
 		// Checks for new infections
-		checkInfectionStatus(people, collisionMemory, INFECT_PROB);
+		rollInfectionOnCollision(people, collisionMemory, INFECT_PROB);
 
 		// Count and display infected
 		num_infected = countStatus(people, INFECTED);
@@ -191,7 +192,7 @@ int main(void) {
 	// Clear screen and display ending stats
 	clearScreen(pixelBufferStart);
 	clearCharacters();
-	displayStats(people);
+	displayEndingStats(people);
 	waitForVSync(pixelControl);
 }
 
@@ -236,6 +237,7 @@ void initializeInfected(person people[TOTAL_PEOPLE], double percentIsolating) {
 		trueNumInfected = TOTAL_PEOPLE - numIsolating;
 	for (int num = 0; num < trueNumInfected; ++num) {
 		int person = (rand() % (TOTAL_PEOPLE - numIsolating)) + numIsolating;
+		// Only infect uninfected people not isolating
 		if (people[person].status == UNINFECTED) {
 			people[person].status = INFECTED;
 		}
@@ -245,63 +247,14 @@ void initializeInfected(person people[TOTAL_PEOPLE], double percentIsolating) {
 	}
 }
 
-// Returns the appropriate colour of a person given their current status
-short int getColour(enum personStatus status) {
-	switch (status) {
-		case UNINFECTED: return GREEN;
-		case INFECTED:   return RED;
-		case RECOVERED:  return BLUE;
-		case DECEASED:   return WHITE;
-		default:		 return WHITE;
-	}
-}
-
-// Collects count of number of people with each status
-int countStatus(person people[TOTAL_PEOPLE], enum personStatus status){
-	int count = 0;
-	for (size_t person = 0; person < TOTAL_PEOPLE; person++) {
-		if(people[person].status == status)
-			count++;
-	}
-	return count;
-}
-
-// Runs through collisions and potentially infects new people based on chance
-void checkInfectionStatus(person people[TOTAL_PEOPLE], int collisionMemory[RESOLUTION_X][RESOLUTION_Y], int infectionProb){
-	for (size_t person = 0; person < TOTAL_PEOPLE; person++) {
-		if (people[person].status != UNINFECTED)
-			continue; // if previously infected now sick, immune, or dead
-
-		int x = people[person].x;
-		int y = people[person].y;
-		
-		for (size_t i = 0; i < SQUARE_WIDTH; i++) {
-			for (size_t j = 0; j < SQUARE_WIDTH; j++) {
-				if (collisionMemory[x + i][y + j] == DETECT_COLLISION_INFECT)
-					if((rand() % 100) < INFECT_PROB) // Infect person
-						people[person].status = INFECTED; 
-			}
-		}
-	}
-}
-
-// Initializes collision memory to no people
-void initCollisionMemory(int collisionMemory[RESOLUTION_X][RESOLUTION_Y]){
-    for(int i = 0 ; i < RESOLUTION_X; i++){
-        for (int j = 0; j < RESOLUTION_Y; j++) {
-            collisionMemory[i][j] = NO_PERSON;
-        }
-    }
-}
-
 // Updates all people to be at their next position for the next drawing
 void updatePositions(person people[TOTAL_PEOPLE], int collisionMemory[RESOLUTION_X][RESOLUTION_Y]) {
 	for (int person = 0; person < TOTAL_PEOPLE; ++person) {
 		if (people[person].status == INFECTED) 
-			rollRecoveryOrDeath(people, person);
+			rollRecoveryOrDecease(people, person);
 		
 		if (!people[person].immobile) {
-			bool flag = checkSinglePersonCollision(people, person, collisionMemory);
+			bool flag = updateDirectionOnCollision(people, person, collisionMemory);
 	
 			int nextX = people[person].x + people[person].slopeX;
 			int nextY = people[person].y + people[person].slopeY;
@@ -314,7 +267,7 @@ void updatePositions(person people[TOTAL_PEOPLE], int collisionMemory[RESOLUTION
 			else if (nextY <= 0) // Reached bottom go up
 				people[person].slopeY = 1;
 			
-			if(!flag){
+			if (!flag){
 				people[person].prevX = people[person].x;
 				people[person].prevY = people[person].y;
 			}
@@ -324,8 +277,8 @@ void updatePositions(person people[TOTAL_PEOPLE], int collisionMemory[RESOLUTION
 	}
 }	
 
-// 
-void rollRecoveryOrDeath(person people[TOTAL_PEOPLE], int personNum) {
+// Rolls to see if an infected person recovers or becomes deceased based on time infected
+void rollRecoveryOrDecease(person people[TOTAL_PEOPLE], int personNum) {
 	// Odds gotten from COVID-19 statistics online
 	unsigned daysInfected = floor(people[personNum].hoursInfected / 8);
 	if (daysInfected >= 1) {
@@ -353,48 +306,37 @@ void rollRecoveryOrDeath(person people[TOTAL_PEOPLE], int personNum) {
 		people[personNum].hoursInfected++;
 }
 
-
-void rollDecease(person people[TOTAL_PEOPLE] , int death_percentage, int recovery_percentage){
-	for (size_t person = 0; person < TOTAL_PEOPLE; person++) {
-		if(people[person].status == INFECTED){
-			people[person].hoursInfected ++;
-			if ((rand() % 1000) < recovery_percentage) 
-				people[person].status = RECOVERED;
-			else if ((rand() % 1000) < death_percentage) {
-				people[person].status = DECEASED;
-				people[person].immobile = true;
-			}
-		}
-	}
-	
+//-------------------------- Collision Functions---------------------//
+// Initializes collision memory to no people
+void initCollisionMemory(int collisionMemory[RESOLUTION_X][RESOLUTION_Y]){
+    for (int i = 0 ; i < RESOLUTION_X; i++){
+        for (int j = 0; j < RESOLUTION_Y; j++) {
+            collisionMemory[i][j] = NO_PERSON;
+        }
+    }
 }
-
 
 // Detects all collisions and points of conflict.
 void updateCollisionMemory(person people[TOTAL_PEOPLE], int collisionMemory[RESOLUTION_X][RESOLUTION_Y]){
 	initCollisionMemory(collisionMemory);
-	for (size_t people_count = 0; people_count < TOTAL_PEOPLE; people_count++)
-	{
+	for (size_t people_count = 0; people_count < TOTAL_PEOPLE; people_count++) {
 		int x = people[people_count].x;
 		int y = people[people_count].y;
-		
-		if(collisionMemory[x][y] == NO_PERSON){
-			for(int m = 0 ; m < SQUARE_WIDTH; m++){
+		// Person has moved to new tile so it should be empty
+		if (collisionMemory[x][y] == NO_PERSON){
+			for (int m = 0 ; m < SQUARE_WIDTH; m++){
 				for (int n = 0; n < SQUARE_WIDTH; n++){
 					if (x + m >= RESOLUTION_X || y + n >= RESOLUTION_Y)
-					{
 						continue;
-					}
-					if(collisionMemory[x+m][y+n] == people_count)
-						;
-					else if(collisionMemory[x+m][y+n] == NO_PERSON)
-						collisionMemory[x+m][y+n] = people_count;
-					else if(collisionMemory[x+m][y+n] == DETECT_COLLISION_INFECT || collisionMemory[x+m][y+n] == DETECT_COLLISION)
-						;
-					else
-					{
-						if(people[collisionMemory[x+m][y+n]].status == INFECTED)
+					// No collision
+					if (collisionMemory[x+m][y+n] == NO_PERSON)
+						collisionMemory[x+m][y+n] = people_count; // Update with person number
+					// Collision
+					else {
+						// Collided with infected person
+						if (people[collisionMemory[x+m][y+n]].status == INFECTED)
 							collisionMemory[x+m][y+n] = DETECT_COLLISION_INFECT;
+						// Collided with non-infected person
 						else
 							collisionMemory[x+m][y+n] = DETECT_COLLISION;
 					}
@@ -404,44 +346,40 @@ void updateCollisionMemory(person people[TOTAL_PEOPLE], int collisionMemory[RESO
 	}
 }
 
-// Modifies directions of a person based on saved memory.
-bool checkSinglePersonCollision(person people[TOTAL_PEOPLE], int person, int collisionMemory[RESOLUTION_X][RESOLUTION_Y]){
+// Controls direction of people after a collision
+bool updateDirectionOnCollision(person people[TOTAL_PEOPLE], int person, int collisionMemory[RESOLUTION_X][RESOLUTION_Y]){
 	int x = people[person].x;
 	int y = people[person].y;
 
-	if(collisionMemory[x][y] == NO_PERSON)
+	if (collisionMemory[x][y] == NO_PERSON)
 		return false;
 	
-	int towardsRight  = 0;
-	int towardsLeft   = 0;
-	int towardsTop    = 0;
-	int towardsBottom = 0;
-
-	int internals = 0;
-
+	int towardsRight = 0, towardsLeft = 0, towardsTop = 0,  towardsBottom = 0;
+	int collisionCount = 0;
+	
 	for(int m = 0 ; m < SQUARE_WIDTH; m++){
 		for (int n = 0; n < SQUARE_WIDTH; n++){
+			// Was there a collision
 			if(collisionMemory[x+m][y+n] == DETECT_COLLISION || collisionMemory[x+m][y+n] == DETECT_COLLISION_INFECT){
-				towardsRight += (m == (SQUARE_WIDTH - 1) ) ;
-				towardsLeft += (m == 0) ;
-				towardsTop += (n == 0) ;
-				towardsBottom += (n == (SQUARE_WIDTH - 1) ) ;
+				towardsRight += (m == (SQUARE_WIDTH - 1));
+				towardsLeft += (m == 0);
+				towardsTop += (n == 0);
+				towardsBottom += (n == (SQUARE_WIDTH - 1));
 				if( m > 0 && m < SQUARE_WIDTH - 1)
-					if (n > 0 && n < SQUARE_WIDTH - 1) {
-						internals ++ ;
-					}
+					if (n > 0 && n < SQUARE_WIDTH - 1)
+						collisionCount++;
 				
 			}
 		}
 	}
-
+	// Create new left/right direction
 	if (towardsLeft > towardsRight)
 		people[person].slopeX = 1;
 	else if (towardsLeft < towardsRight)
 		people[person].slopeX = -1;
 	else if (towardsLeft > 0)
 		people[person].slopeX = 0;
-		
+	// Create new up/down direction
 	if (towardsTop > towardsBottom)
 		people[person].slopeY = 1;
 	else if (towardsTop < towardsBottom)
@@ -449,7 +387,8 @@ bool checkSinglePersonCollision(person people[TOTAL_PEOPLE], int person, int col
 	else if (towardsTop > 0)
 		people[person].slopeY = 0;
 	bool noChangePrev = false;
-	if (internals > 0){
+	
+	if (collisionCount > 0){
 		noChangePrev = true;
 		people[person].prevX = people[person].x;
 		people[person].prevY = people[person].y;
@@ -458,6 +397,26 @@ bool checkSinglePersonCollision(person people[TOTAL_PEOPLE], int person, int col
 	}	
 	return noChangePrev;
 }
+
+// Runs through collisions and potentially infects new people based on chance
+void rollInfectionOnCollision(person people[TOTAL_PEOPLE], int collisionMemory[RESOLUTION_X][RESOLUTION_Y], int infectionProb){
+	for (size_t person = 0; person < TOTAL_PEOPLE; person++) {
+		if (people[person].status != UNINFECTED)
+			continue; // if previously infected now sick, immune, or dead
+
+		int x = people[person].x;
+		int y = people[person].y;
+		
+		for (size_t i = 0; i < SQUARE_WIDTH; i++) {
+			for (size_t j = 0; j < SQUARE_WIDTH; j++) {
+				if (collisionMemory[x + i][y + j] == DETECT_COLLISION_INFECT)
+					if((rand() % 100) < INFECT_PROB) // Infect person
+						people[person].status = INFECTED; 
+			}
+		}
+	}
+}
+
 
 //-------------------------- Control Functions --------------------------//
 // Waits for the enter key to be pressed and determines percent of people isolating
@@ -470,9 +429,10 @@ double startScreenControl() {
 		int PS2Data = *PS2Base;
 		bool dataAvail = PS2Data & 0x8000;
 		if (lastNum != numEntered) {
-			displayNumOnHex(numEntered);
+			displayNumOnHex12(numEntered);
 			lastNum = numEntered;
 		}
+		// PS/2 Keyboard Adapter
 		if (dataAvail) {
 			char keyCode = PS2Data & 0xFF;
 			if (skipNext) {
@@ -561,7 +521,7 @@ double startScreenControl() {
 		if (wantZero)
 			return (double) numEntered;
 		else {
-			displayNumOnHex(25);
+			displayNumOnHex12(25);
 			return (double) 0.25;
 		}
 	}
@@ -580,73 +540,13 @@ void waitForVSync(volatile int* pixelControl) {
     return;
 }
 
-
-//-------------------------- Drawing Functions --------------------------//
-// Draws all people as squares into the pixel buffer
-void drawPeople(person people[TOTAL_PEOPLE], volatile int pixelBufferStart) {
-	for (int person = 0; person < TOTAL_PEOPLE; ++person) {
-		drawSquare(people[person].x, people[person].y, getColour(people[person].status), pixelBufferStart);
-	}
-}
-
+// Checks if a point is within screen boundaries
 bool isValidPoint(int x , int y){
 	return (x < RESOLUTION_X) && (x > 0) && (y > 0) && (y < RESOLUTION_Y) ;
 }
 
-void draw_line(int x1, int y1, int x2, int y2, short int color, volatile int pixelBufferStart){
-  
-    bool is_steep = abs(y2-y1) > abs(x2-x1);
-    if (is_steep){
-        swap (&x1, &y1);
-        swap (&x2, &y2);
-    }
-    if (x2<x1){
-        swap (&x1, &x2);
-        swap (&y1, &y2);
-    }
-    
-    int dx = x2-x1;
-    int dy = abs(y2-y1);
-    int error = -dx/2;
-    int x;
-    int y = y1;
-    int y_step;
-    if (y1 < y2){
-        y_step = 1;
-    }
-    else y_step = -1;
-
-    for (x = x1; x <= x2; x++){
-        if (is_steep){
-            drawPixel(y, x, color, pixelBufferStart);
-        }
-        else drawPixel(x, y, color, pixelBufferStart);
-        error += dy;
-        if (error >= 0){
-            y += y_step;
-            error -= dx;
-        }
-    }
-}
-
-void swap (int* a, int* b){
-    int temp;
-    temp = *a;
-    *a = *b;
-    *b = temp;
-}
-
-// Draws a NxN square on the VGA display given its top left corner
-void drawSquare(int x, int y, short int colour, volatile int pixelBufferStart) {
-	for (int i = x; i < x + SQUARE_WIDTH; ++i) {
-		for (int j = y; j < y + SQUARE_WIDTH; ++j) {
-			if(!isValidPoint(i,j))
-				continue;
-			drawPixel(i, j, colour, pixelBufferStart);
-		}
-	}
-}
-
+//-------------------------- Drawing Functions --------------------------//
+//------------------------------- General -------------------------------//
 // Draws a pixel on the VGA display
 void drawPixel(int x, int y, short int colour, volatile int pixelBufferStart) {
     *(short int*) (pixelBufferStart + (y << 10) + (x << 1)) = colour;
@@ -661,12 +561,33 @@ void clearScreen(volatile int pixelBufferStart) {
 	}
 }
 
-// Clears entire screen to black
-void clearCharacters() {
-	for (int x = 0; x < RESOLUTION_X / 4; ++x) {
-		for (int y = 0; y < RESOLUTION_Y / 4; ++y) {
-			write_char(x, y, ' ');
+//------------------------------- People --------------------------------//
+// Returns the appropriate colour of a person given their current status
+short int getColour(enum personStatus status) {
+	switch (status) {
+		case UNINFECTED: return GREEN;
+		case INFECTED:   return RED;
+		case RECOVERED:  return BLUE;
+		case DECEASED:   return WHITE;
+		default:		 return WHITE;
+	}
+}
+
+// Draws a NxN square on the VGA display given its top left corner
+void drawSquare(int x, int y, short int colour, volatile int pixelBufferStart) {
+	for (int i = x; i < x + SQUARE_WIDTH; ++i) {
+		for (int j = y; j < y + SQUARE_WIDTH; ++j) {
+			if(!isValidPoint(i,j))
+				continue;
+			drawPixel(i, j, colour, pixelBufferStart);
 		}
+	}
+}
+
+// Draws all people as squares into the pixel buffer
+void drawPeople(person people[TOTAL_PEOPLE], volatile int pixelBufferStart) {
+	for (int person = 0; person < TOTAL_PEOPLE; ++person) {
+		drawSquare(people[person].x, people[person].y, getColour(people[person].status), pixelBufferStart);
 	}
 }
 
@@ -679,9 +600,212 @@ void clearPeople(volatile int pixelBufferStart, person people[TOTAL_PEOPLE]) {
 	}
 }
 
+//-------------------------------- Text ---------------------------------//
+// Writes a character to screen
+void write_char(int x, int y, char c) {
+  // VGA character buffer
+  volatile char* character_buffer = (char *)(0xc9000000 + (y << 7) + x);
+  *character_buffer = c;
+}
 
-//
+// Given text cordinates, draw text on screen
+void drawText (int x, int y, char string[], int max_size) {
+	int i = 0;
+	while (i < max_size && *string) {
+		write_char(x, y, *string);
+		string++;
+		x++;
+		i++;
+	}
+}
+
+// Removes all characters from screen
+void clearCharacters() {
+	for (int x = 0; x < RESOLUTION_X / 4; ++x) {
+		for (int y = 0; y < RESOLUTION_Y / 4; ++y) 
+			write_char(x, y, ' ');
+	}
+}
+
+//------------------------------- Graphing ------------------------------//
+// Draws a line on the screen given 2 points using Bresenham’s algorithm
+void draw_line(int x1, int y1, int x2, int y2, short int color, volatile int pixelBufferStart) {
+    bool isSteep = abs(y2-y1) > abs(x2-x1);
+    if (isSteep){
+        swap (&x1, &y1);
+        swap (&x2, &y2);
+    }
+	// Ensures x1 is the leftmost point
+    if (x2 < x1){
+        swap (&x1, &x2);
+        swap (&y1, &y2);
+    }
+	// Initialize variables
+	int dx = x2-x1, dy = abs(y2-y1);
+    int error = -dx/2;
+    int y = y1, y_step = 0;
+	// Determine if drawing line up or down
+    if (y1 < y2)
+        y_step = 1; 
+    else 
+		y_step = -1;
+	// Bresenhams algorithm loop
+    for (int x = x1; x <= x2; x++){
+        if (isSteep)
+            drawPixel(y, x, color, pixelBufferStart);
+        else 
+			drawPixel(x, y, color, pixelBufferStart);
+        error += dy;
+        if (error >= 0) {
+            y += y_step;
+            error -= dx;
+        }
+    }
+}
+
+// Draws boundary of the graph and clears the area inside of it to black
+void drawGraphBoundary(int baseX , int baseY , int res_x , int res_y, volatile int pixelBufferStart) {
+	// Clear graph area to black
+	for (int i = baseX ; i < baseX + res_x ; i++)
+		for (int j = baseY ; j < baseY + res_y ; j++)
+			drawPixel(i , j , BLACK, pixelBufferStart);
+	
+	//draw_line(base_x , base_y , base_x + res_x , base_y , WHITE, pixelBufferStart);
+	//draw_line(base_x , base_y , base_x , base_y + res_y , WHITE, pixelBufferStart);
+	//draw_line(base_x + res_x , base_y  , base_x + res_x, base_y + res_y, WHITE, pixelBufferStart);
+	//draw_line(base_x , base_y + res_y, base_x + res_x, base_y + res_y , WHITE, pixelBufferStart);
+	
+	// Draw boundary lines
+	draw_line(baseX, baseY, baseX + res_x, baseY, WHITE, pixelBufferStart); // Bottom
+	draw_line(baseX, baseY, baseX, baseY + res_y, WHITE, pixelBufferStart); // Left
+	draw_line(baseX + res_x, baseY, baseX + res_x, baseY + res_y, WHITE, pixelBufferStart); // Right
+	draw_line(baseX, baseY + res_y, baseX + res_x, baseY + res_y , WHITE, pixelBufferStart); // Top
+}
+
+// Draws the information graph and plots the lines on it
+void drawGraph(int graphHistory[SIM_LENGTH], int size, int baseX, int baseY, 
+			  int res_x, int res_y, char string[], short int color, volatile int pixelBufferStart) {
+	int prevX, prevY, newX, newY, currX = 0, s = 1;
+	bool first = true;
+	// Loops over the graph x axis
+	for (size_t i = 0; i < size; i+= s) {
+		// If the time hasn't progressed enough don't draw the graph yet
+		if (graphHistory[i] == NO_PLOT)
+			break;
+		// Else progress to next pixel to draw
+		else
+			currX++;
+
+		if (res_x < size){
+			s = (size - i) / (res_x - currX);
+			if(s == 0)
+				s = 1;
+		}
+		// Update (x, y) coordinates
+		prevX = newX;
+		prevY = newY;
+		newY = baseY + res_y - graphHistory[i];
+		newX = baseX + currX;
+		// Ensures we don't draw on the graph boundary
+		if (!first){
+			// Plot line
+			if(isValidPoint(prevX , prevY) && isValidPoint(newX , newY))
+				draw_line(prevX , prevY , newX , newY , color, pixelBufferStart);
+		}
+		first = false;
+	}
+	int size_string = 0;
+	char* temp = string;
+	while (*temp) {
+		size_string++;
+		temp++;
+   	}
+	// Draws text under the graph
+	drawText((baseX + res_x / 2 ) / 4 - size_string / 2 , (baseY + res_y + 8) /4 , string, 100);
+}
+
+// Clears the graph history array
+void resetGraphHistory(int graphHistory[SIM_LENGTH]){
+	for (size_t i = 0; i < SIM_LENGTH; i++) 
+		graphHistory[i] = NO_PLOT;
+}
+
+//-------------------------------- Stats --------------------------------//
+// Collects count of number of people with each status
+int countStatus(person people[TOTAL_PEOPLE], enum personStatus status){
+	int count = 0;
+	for (size_t person = 0; person < TOTAL_PEOPLE; person++) {
+		if(people[person].status == status)
+			count++;
+	}
+	return count;
+}
+
+// Displays the given number of isolating people < 100 on hex1 and hex0
+void displayNumOnHex12(unsigned percentIsolating) {
+	volatile int* hex4to0 = (int *)0xFF200020;
+	unsigned char hexCodes[] = {0x3F, 0x06, 0x5B, 0x4F, 0x66, 0x6D, 0x7D, 0x07, 0x7F, 0x67};
+	unsigned char hexOut[2] = {0, 0};
+	unsigned onesDigit = percentIsolating % 10;
+	unsigned tensDigit = floor(percentIsolating / 10);
+	hexOut[0] = hexCodes[onesDigit];
+	hexOut[1] = hexCodes[tensDigit];
+	*hex4to0 = (*(int *)hexOut) & 0xFFFF;
+}
+
+// Displays the current number of infected on hex2 and hex3
+void displayNumOnHex23(unsigned percentInfected) {
+	volatile int* hex4to0 = (int *)0xFF200020;
+	unsigned char hexCodes[] = {0x3F, 0x06, 0x5B, 0x4F, 0x66, 0x6D, 0x7D, 0x07, 0x7F, 0x67};
+	unsigned char hexOut[2] = {0, 0};
+	unsigned onesDigit = percentInfected % 10;
+	unsigned tensDigit = floor(percentInfected / 10);
+	hexOut[0] = hexCodes[onesDigit];
+	hexOut[1] = hexCodes[tensDigit];
+	*hex4to0 = (*(int *)hexOut << 16 ) | (*hex4to0 & 0xFFFF);
+}
+
+//-------------------------- Start/end screens --------------------------//
+// Writes text displaying stats at end of simulation
+void displayEndingStats(person people[TOTAL_PEOPLE]){
+	int recoveredCount = 0, infectedCount = 0, deceasedCount = 0;
+	int totalRecoveredTime = 0, totalDeceasedTime = 0;
+	// Go through all people and count statuses
+	for (size_t person = 0; person < TOTAL_PEOPLE; person++){
+		if(people[person].status == RECOVERED){
+			recoveredCount++;
+			totalRecoveredTime += people[person].hoursInfected;
+		}
+		if(people[person].status == DECEASED){
+			deceasedCount++;
+			totalDeceasedTime += people[person].hoursInfected;
+		}
+		if(people[person].status == INFECTED)
+			infectedCount++;
+	}
+
+	int avgTimeInfected = totalRecoveredTime / recoveredCount ;
+	char *message = (char*)malloc(140 * sizeof(char));
+	
+	int baseX = (RESOLUTION_X / 2) /4  - 20;
+	int baseY = (RESOLUTION_Y / 2) /4 ;
+	
+	sprintf(message, "Simulation ran for %d days." , SIM_LENGTH / 24);
+	drawText(baseX , baseY , message, 50);
+	sprintf(message, "%d People are still infected." , infectedCount);
+	drawText(baseX , baseY + 1 , message, 50);
+	sprintf(message, "%d People recovered.", recoveredCount);
+	drawText(baseX , baseY  + 2, message, 50);
+	sprintf(message, "%d People died.", deceasedCount);
+	drawText(baseX , baseY  + 3, message, 50);
+	sprintf(message, "Average recovery time was %d Days." , avgTimeInfected / 24);
+	drawText(baseX , baseY  + 5, message, 50);
+	free(message);
+}
+
+// Draws our start screen graphic
 void drawStartScreen(volatile int pixelBufferStart) {
+	// Note: There is no other way of doing this due to needing to use the online simulator
 	unsigned char startScreen[] = {
 		0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 
 		0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 
@@ -925,6 +1049,7 @@ void drawStartScreen(volatile int pixelBufferStart) {
 		0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6, 0xdb, 0xd6
 	};  
 	int x = 0, y = 0;	
+	// Draws the start screen left to right bottom to top
 	for (int pxNum = 0 ; pxNum < ((RESOLUTION_X * RESOLUTION_Y * 2) - 1); pxNum += 2) {
 		int red = ((startScreen[pxNum + 1] & 0xF8) >> 3) << 11;
 		int green = (((startScreen[pxNum] & 0xE0) >> 5)) | ((startScreen[pxNum + 1] & 0x7) << 3) ;
@@ -932,6 +1057,7 @@ void drawStartScreen(volatile int pixelBufferStart) {
 		short int colour = red | ((green << 5) | blue);
 		drawPixel(x, y, colour, pixelBufferStart);
 		x++;		  
+		// Hit right boundary, go up and start at left end
 		if (x == RESOLUTION_X) {
 			x = 0;
 			y++;
@@ -939,151 +1065,11 @@ void drawStartScreen(volatile int pixelBufferStart) {
 	}
 }
 
-// Graphing 
-
-void drawGraphBoundary(int base_x , int base_y , int res_x , int res_y, volatile int pixelBufferStart){
-	for(int i = base_x ; i < base_x + res_x ; i++)
-		for(int j = base_y ; j < base_y + res_y ; j++)
-			drawPixel(i , j , BLACK, pixelBufferStart);
-
-	draw_line(base_x , base_y , base_x + res_x , base_y , WHITE, pixelBufferStart);
-	draw_line(base_x , base_y , base_x , base_y + res_y , WHITE, pixelBufferStart);
-	draw_line(base_x + res_x , base_y  , base_x + res_x, base_y + res_y, WHITE, pixelBufferStart);
-	draw_line(base_x , base_y + res_y, base_x + res_x, base_y + res_y , WHITE, pixelBufferStart);
+//---------------------------- Miscellaneous ----------------------------//
+// Swaps two variables
+void swap (int* a, int* b){
+    int temp;
+    temp = *a;
+    *a = *b;
+    *b = temp;
 }
-
-// Draws graph.
-void drawGraph(int history[SIM_LENGTH], int size, int base_x , int base_y , int res_x , int res_y, char string[], short int color ,volatile int pixelBufferStart){
-	int prevX , prevY, newX, newY;
-	bool first = true;
-	int curr_x = 0;
-	int s = 1;
-
-	for (size_t i = 0; i < size; i+= s)
-	{
-		if(history[i] == NO_PLOT)
-			break;
-
-		curr_x++;
-
-		if( res_x < size){
-			s =  ( size - i ) / (res_x - curr_x) ;
-			if(s == 0)
-				s = 1;
-		}
-		prevX = newX;
-		prevY = newY;
-		newY = base_y + res_y - history[i];
-		newX = base_x + curr_x;
-
-		if(!first){
-			// Plot line
-			if(isValidPoint(prevX , prevY) && isValidPoint(newX , newY))
-				draw_line(prevX , prevY , newX , newY , color, pixelBufferStart);
-		}
-		first = false;
-	}
-	int size_string = 0;
-	char * temp = string;
-	while (*temp) {
-		size_string++;
-		temp++;
-   	}
-	drawText( (base_x + res_x / 2 ) / 4 - size_string / 2 , (base_y + res_y + 8) /4 , string, 100);
-}
-
-void resetHistory(int history[SIM_LENGTH]){
-	for (size_t i = 0; i < SIM_LENGTH; i++) {
-		history[i] = NO_PLOT;
-	}
-}
-
-// Writes char to screen
-void write_char(int x, int y, char c) {
-  // VGA character buffer
-  volatile char* character_buffer = (char *)(0xc9000000 + (y << 7) + x);
-  *character_buffer = c;
-}
-
-// Given text cordinates, draw text on screen
-void drawText (int x, int y, char string[], int max_size) {
-	int i = 0;
-	while (i < max_size && *string) {
-		write_char(x, y, *string);
-		x++;
-		string++;
-		i++;
-	}
-}
-
-// Writes text displaying stats at end of simulation
-void displayStats(person people[TOTAL_PEOPLE]){
-	int recovered = 0;
-	int infected = 0;
-	int dead = 0;
-
-	int time_infected_recovered_total = 0;
-	int time_infected_dead_total = 0;
-
-	for (size_t person = 0; person < TOTAL_PEOPLE; person++)
-	{
-		if(people[person].status == RECOVERED){
-			recovered++;
-			time_infected_recovered_total += people[person].hoursInfected;
-		}
-
-		if(people[person].status == DECEASED){
-			dead++;
-			time_infected_dead_total += people[person].hoursInfected;
-		}
-
-		if(people[person].status == DECEASED){
-			infected++;
-		}
-	}
-
-	int avg_time_infected_recovered = time_infected_recovered_total / recovered ;
-	int avg_time_infected_dead = time_infected_dead_total / dead ;
-
-	char *message = (char*)malloc(140 * sizeof(char));
-	
-	int base_x = ( RESOLUTION_X / 2 ) /4  - 20;
-	int base_y = ( RESOLUTION_Y / 2) /4 ;
-	
-	sprintf(message, "Simulation ran for %d days." , SIM_LENGTH / 24);
-	drawText( base_x , base_y , message, 50);
-	sprintf(message, "%d People are still infected." , infected);
-	drawText( base_x , base_y + 1 , message, 50);
-	sprintf(message, "%d People recovered.", recovered);
-	drawText( base_x , base_y  + 2, message, 50);
-	sprintf(message, "%d People died.", dead);
-	drawText( base_x , base_y  + 3, message, 50);
-	sprintf(message, "Average recovery time was %d Days." , avg_time_infected_recovered / 24);
-	drawText( base_x , base_y  + 5, message, 50);
-	free(message);
-}
-
-// Displays the given number < 100 on hex1 and hex0
-void displayNumOnHex(unsigned percentIsolating) {
-	volatile int* hex4to0 = (int *)0xFF200020;
-	unsigned char hexCodes[] = {0x3F, 0x06, 0x5B, 0x4F, 0x66, 0x6D, 0x7D, 0x07, 0x7F, 0x67};
-	unsigned char hexOut[2] = {0, 0};
-	unsigned onesDigit = percentIsolating % 10;
-	unsigned tensDigit = floor(percentIsolating / 10);
-	hexOut[0] = hexCodes[onesDigit];
-	hexOut[1] = hexCodes[tensDigit];
-	*hex4to0 = (*(int *)hexOut) & 0xFFFF;
-}
-
-void displayNumOnHex23(unsigned percentInfected) {
-	volatile int* hex4to0 = (int *)0xFF200020;
-	unsigned char hexCodes[] = {0x3F, 0x06, 0x5B, 0x4F, 0x66, 0x6D, 0x7D, 0x07, 0x7F, 0x67};
-	unsigned char hexOut[2] = {0, 0};
-	unsigned onesDigit = percentInfected % 10;
-	unsigned tensDigit = floor(percentInfected / 10);
-	hexOut[0] = hexCodes[onesDigit];
-	hexOut[1] = hexCodes[tensDigit];
-	*hex4to0 = (*(int *)hexOut << 16 ) | (*hex4to0 & 0xFFFF);
-}
-
-
