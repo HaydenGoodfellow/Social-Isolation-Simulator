@@ -780,7 +780,7 @@ void displayEndingStats(person people[TOTAL_PEOPLE]) {
 	drawText(baseX, baseY + 1, message, 50);
 	sprintf(message, "%d People recovered.", recoveredCount);
 	drawText(baseX, baseY  + 2, message, 50);
-	sprintf(message, "%d People died.", deceasedCount);
+	sprintf(message, "%d People became deceased.", deceasedCount);
 	drawText(baseX, baseY  + 3, message, 50);
 	sprintf(message, "Average recovery time was %d Days.", avgTimeInfected / 24);
 	drawText(baseX, baseY  + 5, message, 50);
